@@ -1,4 +1,4 @@
-const CACHE_NAME = 'pro-v1';
+const CACHE_NAME = 'govids-v1';
 const urlsToCache = [
   './',
   './index.html',
