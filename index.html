@@ -3,8 +3,16 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>Pro</title>
+    <!-- Judul disesuaikan dengan Manifest agar tidak muncul "Pro" -->
+    <title>Govids</title>
+    
+    <!-- PWA & Mobile Settings -->
     <link rel="manifest" href="./manifest.json">
+    <meta name="theme-color" content="#000000">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <link rel="apple-touch-icon" href="./icon.png">
+
     <style>
         /* CSS Utama - Full Screen Layar Hitam */
         * {
@@ -321,11 +329,13 @@
 
     // Registrasi Service Worker PWA
     if ('serviceWorker' in navigator) {
-        navigator.serviceWorker.register('./sw.js')
-            .then(() => console.log('Service Worker Terdaftar!'))
-            .catch(err => console.log('SW Gagal:', err));
+        window.addEventListener('load', () => {
+            navigator.serviceWorker.register('./sw.js')
+                .then(() => console.log('Service Worker Terdaftar!'))
+                .catch(err => console.log('SW Gagal:', err));
+        });
     }
 </script>
 
 </body>
-  </html>
+</html>
