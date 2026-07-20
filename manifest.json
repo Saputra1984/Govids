@@ -1,6 +1,6 @@
 {
-  "name": "Pro",
-  "short_name": "Pro",
+  "name": "Govids",
+  "short_name": "Govids",
   "start_url": "./index.html",
   "display": "standalone",
   "background_color": "#000000",
