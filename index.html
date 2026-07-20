@@ -261,7 +261,7 @@
 <script src="brain.js"></script>
 
 <script>
-    // Fitur Auto-Hide Controls & Tombol Percepat/Mundur
+    // Fitur Auto-Hide Controls & Tombol Pemutar Video
     const appContainer = document.getElementById('appContainer');
     const uiLayer = document.getElementById('uiLayer');
     const video = document.getElementById('mainVideo');
@@ -269,21 +269,26 @@
     const btnForward = document.getElementById('btnForward');
     const btnPlayPause = document.getElementById('btnPlayPause');
 
-    let hideTimeout;
+    let hideTimeout = null;
 
     function showUI() {
         uiLayer.classList.remove('hidden');
-        clearTimeout(hideTimeout);
-        hideTimeout = setTimeout(() => {
-            if (!video.paused) {
+        
+        // Clear timeout sebelumnya agar tidak tumpang tindih
+        if (hideTimeout) clearTimeout(hideTimeout);
+
+        // UI hanya akan bersembunyi jika video BENAR-BENAR sedang berjalan
+        if (!video.paused) {
+            hideTimeout = setTimeout(() => {
                 uiLayer.classList.add('hidden');
-            }
-        }, 3500); // UI hilang otomatis setelah 3.5 detik
+            }, 3500); 
+        }
     }
 
-    // Toggle tampilan kontrol saat layar disentuh
+    // Toggle tampilan kontrol saat layar disentuh (kecuali tombol UI)
     appContainer.addEventListener('click', (e) => {
-        if (e.target.tagName === 'BUTTON' || e.target.tagName === 'SELECT' || e.target.tagName === 'LABEL') return;
+        if (e.target.closest('button') || e.target.closest('select') || e.target.closest('label')) return;
+        
         if (uiLayer.classList.contains('hidden')) {
             showUI();
         } else {
@@ -291,40 +296,40 @@
         }
     });
 
-    // Tombol Maju (+10s) dan Mundur (-10s)
+    // Tombol Mundur (-10s)
     btnRewind.addEventListener('click', (e) => {
         e.stopPropagation();
         video.currentTime = Math.max(0, video.currentTime - 10);
         showUI();
     });
 
+    // Tombol Maju (+10s)
     btnForward.addEventListener('click', (e) => {
         e.stopPropagation();
         video.currentTime = Math.min(video.duration, video.currentTime + 10);
         showUI();
     });
 
-    // Tombol Play / Pause
+    // Tombol Play / Pause Manual
     btnPlayPause.addEventListener('click', (e) => {
         e.stopPropagation();
         if (video.paused) {
             video.play();
-            btnPlayPause.innerText = '❚❚';
         } else {
             video.pause();
-            btnPlayPause.innerText = '▶';
         }
-        showUI();
     });
 
+    // Event Listener Asli dari Video Player (Cegah Berkedip)
     video.addEventListener('play', () => {
         btnPlayPause.innerText = '❚❚';
-        showUI();
+        showUI(); // Mulai hitung mundur 3.5 detik untuk sembunyikan UI
     });
 
     video.addEventListener('pause', () => {
         btnPlayPause.innerText = '▶';
-        uiLayer.classList.remove('hidden');
+        if (hideTimeout) clearTimeout(hideTimeout);
+        uiLayer.classList.remove('hidden'); // Munculkan UI terus saat dipause
     });
 
     // Registrasi Service Worker PWA
