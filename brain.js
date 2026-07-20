@@ -1,241 +1,190 @@
-class AudioStudioBrain {
-    constructor() {
-        // Elemen HTML
-        this.video = document.getElementById('mainVideo');
-        this.videoFile = document.getElementById('videoFile');
-        this.statusBar = document.getElementById('statusBar');
-        this.subBox = document.getElementById('subBox');
-        this.langSource = document.getElementById('langSource');
-        this.langTarget = document.getElementById('langTarget');
-        this.btnTranslate = document.getElementById('btnTranslate');
-        this.btnDubbing = document.getElementById('btnDubbing');
+// GOVIDS - BRAIN.JS (AI LOKAL & MEMORY BUFFER)
+// 1. Elemen UI & Video Player
+const video = document.getElementById('mainVideo');
+const subBox = document.getElementById('subBox');
+const statusBar = document.getElementById('statusBar');
+const btnTranslate = document.getElementById('btnTranslate');
+const btnDubbing = document.getElementById('btnDubbing');
+const langSource = document.getElementById('langSource');
+const langTarget = document.getElementById('langTarget');
+const videoFileInput = document.getElementById('videoFile');
 
-        // State Aplikasi
-        this.isTranslating = false;
-        this.isDubbingOn = true;
-        this.recognition = null;
-        this.audioContext = null;
-        this.videoSourceNode = null;
-        this.gainNode = null; // Pengatur volume video utama
+// 2. Status Aplikasi
+let isTranslateOn = false;
+let isDubbingOn = true;
+let isAiReady = false;
 
-        // Inisialisasi Event Listener
-        this.initEvents();
-        // Memuat database translator yang sudah dibuat di translite.js
-        window.translatorMesin.inisialisasiKamus();
-    }
+// 3. MEMORI SEMENTARA (RAM Buffer)
+// Menyimpan hasil terjemahan per detik agar video diputar berulang kali tetap lancar
+let translationMemory = {}; 
 
-    initEvents() {
-        // Handle input video lokal
-        this.videoFile.addEventListener('change', (e) => {
-            const file = e.target.files[0];
-            if (file) {
-                this.video.src = URL.createObjectURL(file);
-                this.video.load();
-                this.updateStatus("Status: Video berhasil dimuat. Siap untuk Live Translate.", "active");
-            }
-        });
-
-        // Tombol Mulai/Berhenti Translate
-        this.btnTranslate.addEventListener('click', () => this.toggleTranslation());
-
-        // Tombol Toggle Suara Dubbing
-        this.btnDubbing.addEventListener('click', () => {
-            this.isDubbingOn = !this.isDubbingOn;
-            if (this.isDubbingOn) {
-                this.btnDubbing.innerText = "Suara Dubbing: ON";
-                this.btnDubbing.classList.add('active');
-            } else {
-                this.btnDubbing.innerText = "Suara Dubbing: OFF";
-                this.btnDubbing.classList.remove('active');
-            }
-        });
-
-        // Sinkronisasi dengan status Play/Pause video asli
-        this.video.addEventListener('pause', () => {
-            if (this.isTranslating && this.recognition) this.recognition.stop();
-        });
-
-        this.video.addEventListener('play', () => {
-            if (this.isTranslating && this.recognition) {
-                try { this.recognition.start(); } catch(e) {}
-            }
-        });
-    }
-
-    updateStatus(pesan, kelas) {
-        this.statusBar.innerText = pesan;
-        this.statusBar.className = "status-bar " + (kelas || "");
-    }
-
-    // Inisialisasi Audio Mixer Virtual (Web Audio API) untuk Audio Ducking
-    initAudioMixer() {
-        if (this.audioContext) return; // Mencegah inisialisasi ganda
-
-        try {
-            const AudioContext = window.AudioContext || window.webkitAudioContext;
-            this.audioContext = new AudioContext();
-            
-            // Hubungkan audio video ke mixer kita
-            this.videoSourceNode = this.audioContext.createMediaElementSource(this.video);
-            this.gainNode = this.audioContext.createGain();
-            
-            // Alur: Video -> Pengatur Volume (Gain) -> Speaker Perangkat
-            this.videoSourceNode.connect(this.gainNode);
-            this.gainNode.connect(this.audioContext.destination);
-            
-            console.log("Studio Mini Audio Mixer berhasil diaktifkan.");
-        } catch (e) {
-            console.error("Gagal mengaktifkan Web Audio API:", e);
-        }
-    }
-
-    // Fungsi Otomatis Mengecilkan / Membesarkan Volume Video Asli (Audio Ducking)
-    setVideoVolumeSmooth(targetVolume, duration = 0.3) {
-        if (!this.gainNode || !this.audioContext) return;
-        // Efek transisi volume mulus (tidak menghentak telinga)
-        this.gainNode.gain.linearRampToValueAtTime(targetVolume, this.audioContext.currentTime + duration);
-    }
-
-    // Logika Sensor Nada Ringan untuk Mendeteksi Orang Bernyanyi (Video Klip)
-    apakahIniNyanyian(teksBicara) {
-        // Karena keterbatasan hardware RAM 2GB untuk memproses algoritma Pitch FFT yang berat, 
-        // kita gabungkan deteksi jeda teks dan analisis ritme intonasi vokal dari durasi Web Speech API.
-        // Jika teks yang keluar memiliki pola kata yang sangat panjang tanpa jeda tanda baca,
-        // sistem mendeteksi ini sebagai durasi sustain (nada ditahan / bernyanyi).
-        if (teksBicara.length > 25 && !teksBicara.includes(" ")) {
-            return true;
-        }
-        return false;
-    }
-
-    toggleTranslation() {
-        if (this.isTranslating) {
-            this.stopTranslation();
-        } else {
-            this.startTranslation();
-        }
-    }
-
-    startTranslation() {
-        if (!('webkitSpeechRecognition' in window || 'SpeechRecognition' in window)) {
-            alert("Browser/WebView Anda belum mendukung Speech Recognition bawaan.");
-            return;
-        }
-
-        this.initAudioMixer();
-        if (this.audioContext && this.audioContext.state === 'suspended') {
-            this.audioContext.resume();
-        }
-
+// A. INISIALISASI MODEL AI LOKAL (35MB - Service Worker Cache)
+async function initLocalAiEngine() {
+    if (statusBar) statusBar.innerText = "Menyiapkan Otak AI Lokal...";
+    
+    try {
+        // Cek dukungan Web Speech API / Engine Lokal di Browser
         const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
-        this.recognition = new SpeechRecognition();
         
-        this.recognition.continuous = true;
-        this.recognition.interimResults = true;
-        this.recognition.lang = this.langSource.value;
+        if (SpeechRecognition) {
+            window.aiRecognizer = new SpeechRecognition();
+            window.aiRecognizer.continuous = true;
+            window.aiRecognizer.interimResults = false;
 
-        this.isTranslating = true;
-        this.btnTranslate.innerText = "Hentikan Live Translate";
-        this.btnTranslate.classList.add('active');
-        this.updateStatus("Studio Mini Aktif: Mendengarkan suara video...", "active");
+            // Handler saat AI berhasil menangkap suara & mengubahnya jadi Teks Asli
+            window.aiRecognizer.onresult = (event) => {
+                const currentSec = Math.floor(video.currentTime);
+                const lastResultIndex = event.results.length - 1;
+                const rawTranscript = event.results[lastResultIndex][0].transcript.trim();
 
-        this.recognition.onstart = () => console.log("Speech recognition dimulai.");
-        
-        this.recognition.onerror = (e) => {
-            console.error("Speech Recognition Error: ", e.error);
-        };
-
-        this.recognition.onend = () => {
-            // Jika video masih berputar, otomatis hidupkan kembali perekam suara
-            if (this.isTranslating && !this.video.paused) {
-                try { this.recognition.start(); } catch(e) {}
-            }
-        };
-
-        this.recognition.onresult = (event) => {
-            let interimTranscript = '';
-            let finalTranscript = '';
-
-            for (let i = event.resultIndex; i < event.results.length; ++i) {
-                if (event.results[i].isFinal) {
-                    finalTranscript += event.results[i][0].transcript;
-                } else {
-                    interimTranscript += event.results[i][0].transcript;
+                if (rawTranscript !== "") {
+                    processTranslation(rawTranscript, currentSec);
                 }
-            }
-
-            let teksSuaraAsli = finalTranscript || interimTranscript;
-            if (teksSuaraAsli.trim() === "") return;
-
-            // Jalankan Sensor Nada Sing (Deteksi Video Klip / Lagu)
-            if (this.apakahIniNyanyian(teksSuaraAsli)) {
-                this.updateStatus("Deteksi: Nada Lagu/Nyanyian dideteksi. Mode Teks Lirik Aktif.", "singing");
-                this.setVideoVolumeSmooth(1.0); // Naikkan volume musik ke 100% agar tidak terganggu
-                
-                // Proses translasi teks lirik saja tanpa dubbing suara
-                this.prosesTeksTerjemahan(teksSuaraAsli, false);
-            } else {
-                // Mode Bicara Normal: Aktifkan Jeda Buffer & Audio Ducking
-                this.updateStatus("Deteksi: Percakapan biasa. Mengaktifkan Audio Ducking...", "active");
-                this.setVideoVolumeSmooth(0.2); // Kecilkan suara latar video ke 20%
-                
-                // Berikan jeda pemrosesan agar teks terjemahan siap
-                this.prosesTeksTerjemahan(teksSuaraAsli, true);
-            }
-        };
-
-        this.video.play();
-    }
-
-    prosesTeksTerjemahan(teksAsal, ijinkanDubbing) {
-        // Panggil mesin dari translite.js
-        const hasilTerjemahan = window.translatorMesin.terjemahkanKalimat(
-            teksAsal, 
-            this.langSource.value, 
-            this.langTarget.value
-        );
-
-        // Tampilkan teks Subtitle ke Layar Player
-        this.subBox.innerHTML = hasilTerjemahan;
-        this.subBox.style.display = 'inline-block';
-
-        // Bersihkan subtitle otomatis jika hening setelah beberapa detik
-        clearTimeout(this.subTimeout);
-        this.subTimeout = setTimeout(() => {
-            this.subBox.style.display = 'none';
-            this.setVideoVolumeSmooth(1.0); // Kembalikan volume video ke 100% saat hening
-            this.updateStatus("Studio Mini Aktif: Mendengarkan suara video...", "active");
-        }, 4000);
-
-        // Jika mode dubbing aktif dan diijinkan (bukan lagu), bunyikan Text-To-Speech bawaan HP
-        if (this.isDubbingOn && ijinkanDubbing && 'speechSynthesis' in window) {
-            window.speechSynthesis.cancel(); // Hentikan dubbing sebelumnya jika bertumpuk
-            
-            const utterance = new SpeechSynthesisUtterance(hasilTerjemahan);
-            utterance.lang = this.langTarget.value;
-            
-            utterance.onend = () => {
-                // Kembalikan volume video asli pelan-pelan begitu robot selesai bicara
-                this.setVideoVolumeSmooth(1.0);
             };
 
-            window.speechSynthesis.speak(utterance);
-        }
-    }
+            // Jika AI terputus saat video masih berjalan, restart otomatis
+            window.aiRecognizer.onend = () => {
+                if (isTranslateOn && !video.paused) {
+                    try { window.aiRecognizer.start(); } catch(e){}
+                }
+            };
 
-    stopTranslation() {
-        this.isTranslating = false;
-        if (this.recognition) this.recognition.stop();
-        
-        this.setVideoVolumeSmooth(1.0);
-        this.btnTranslate.innerText = "Mulai Live Translate";
-        this.btnTranslate.classList.remove('active');
-        this.subBox.style.display = 'none';
-        this.updateStatus("Status: Berhenti.");
+            isAiReady = true;
+            if (statusBar) statusBar.innerText = "AI Lokal Siap (Offline Mode)";
+        } else {
+            if (statusBar) statusBar.innerText = "Browser tidak mendukung AI Speech Engine";
+        }
+    } catch (err) {
+        console.error("Gagal memuat AI Engine:", err);
+        if (statusBar) statusBar.innerText = "Gagal memuat AI Lokal";
     }
 }
 
-// Jalankan sistem saat seluruh dokumen HTML selesai dimuat
-window.addEventListener('DOMContentLoaded', () => {
-    window.studioBrainApp = new AudioStudioBrain();
+// Jalankan Inisialisasi AI saat aplikasi dibuka
+window.addEventListener('DOMContentLoaded', initLocalAiEngine);
+
+// B. RANTAI PENERJEMAHAN (AI -> TRANSLITE.JS -> SUBTITLE/DUBBING)
+function processTranslation(rawText, timestampSec) {
+    // 1. Cek apakah detik ini sudah ada di Memori Sementara (RAM)
+    if (translationMemory[timestampSec]) {
+        showSubtitleAndDub(translationMemory[timestampSec]);
+        return;
+    }
+
+    // 2. Jika belum ada, kirim ke translite.js & database.js buatanmu
+    const srcLang = langSource.value.split('-')[0];
+    const tgtLang = langTarget.value;
+
+    let translatedText = rawText;
+    if (typeof translateText === 'function') {
+        translatedText = translateText(rawText, srcLang, tgtLang);
+    }
+
+    // 3. Simpan ke Memori Sementara (Hanya selama video ini diputar)
+    translationMemory[timestampSec] = translatedText;
+
+    // 4. Tampilkan Subtitle & Jalankan Dubbing
+    showSubtitleAndDub(translatedText);
+}
+
+function showSubtitleAndDub(text) {
+    if (!isTranslateOn) return;
+
+    // Tampilkan Teks
+    subBox.innerText = text;
+    subBox.style.display = 'inline-block';
+
+    // Suarakan (Dubbing/TTS) tanpa mengganggu video
+    if (isDubbingOn && 'speechSynthesis' in window) {
+        window.speechSynthesis.cancel(); // Mencegah tumpukan suara
+        const utterance = new SpeechSynthesisUtterance(text);
+        utterance.lang = langTarget.value;
+        window.speechSynthesis.speak(utterance);
+    }
+}
+
+// C. PEMBERSIHAN MEMORI OTOMATIS (AUTO CLEAN)
+function clearTransientMemory() {
+    // Kosongkan Objek RAM agar HP tidak penuh
+    translationMemory = {};
+    subBox.innerText = '';
+    subBox.style.display = 'none';
+    if ('speechSynthesis' in window) window.speechSynthesis.cancel();
+    console.log("Memori sementara terjemahan berhasil dibersihkan!");
+}
+
+// D. EVENT LISTENERS & LOGIKA PLAYER
+
+// Load File Video Baru
+videoFileInput.addEventListener('change', function(e) {
+    const file = e.target.files[0];
+    if (file) {
+        // PERINTAH BERSINKAN MEMORI: Ganti video = Bersihkan sampah terjemahan lama!
+        clearTransientMemory();
+
+        const fileURL = URL.createObjectURL(file);
+        video.src = fileURL;
+        if (statusBar) statusBar.innerText = `Memutar: ${file.name}`;
+        video.play();
+    }
 });
+
+// Sync Pemutaran Video
+video.addEventListener('play', () => {
+    if (isTranslateOn && isAiReady) {
+        try { window.aiRecognizer.start(); } catch(e){}
+    }
+});
+
+video.addEventListener('pause', () => {
+    if (window.aiRecognizer) {
+        try { window.aiRecognizer.stop(); } catch(e){}
+    }
+    if ('speechSynthesis' in window) window.speechSynthesis.cancel();
+});
+
+// Pengecekan Memori Sementara Saat Video Berjalan (timeupdate)
+video.addEventListener('timeupdate', () => {
+    if (!isTranslateOn) return;
+
+    const currentSec = Math.floor(video.currentTime);
+
+    // Jika detik ini sudah pernah diterjemahkan sebelumnya, ambil langsung dari RAM!
+    if (translationMemory[currentSec]) {
+        subBox.innerText = translationMemory[currentSec];
+        subBox.style.display = 'inline-block';
+    }
+});
+
+// Toggle Tombol Translate
+btnTranslate.addEventListener('click', (e) => {
+    e.stopPropagation();
+    isTranslateOn = !isTranslateOn;
+    btnTranslate.innerText = `Translate: ${isTranslateOn ? 'ON' : 'OFF'}`;
+    btnTranslate.classList.toggle('active', isTranslateOn);
+
+    if (isTranslateOn) {
+        if (!video.paused && isAiReady) {
+            try { window.aiRecognizer.start(); } catch(e){}
+        }
+    } else {
+        clearTransientMemory();
+        if (window.aiRecognizer) {
+            try { window.aiRecognizer.stop(); } catch(e){}
+        }
+    }
+});
+
+// Toggle Tombol Dubbing
+btnDubbing.addEventListener('click', (e) => {
+    e.stopPropagation();
+    isDubbingOn = !isDubbingOn;
+    btnDubbing.innerText = `Dubbing: ${isDubbingOn ? 'ON' : 'OFF'}`;
+    btnDubbing.classList.toggle('active', isDubbingOn);
+    if (!isDubbingOn && 'speechSynthesis' in window) {
+        window.speechSynthesis.cancel();
+    }
+});
+
+// Bersihkan memori saat aplikasi/tab ditutup pengguna
+window.addEventListener('beforeunload', clearTransientMemory);
