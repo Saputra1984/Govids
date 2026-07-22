@@ -1,4 +1,4 @@
-// GOVIDS - TRANSLITE.JS (TRANSLATION ENGINE)
+// GOVIDS - TRANSLITE.JS (ENGINE TRANSLATOR OFFLINE)
 
 class AntiMainstreamTranslator {
     constructor() {
@@ -16,7 +16,7 @@ class AntiMainstreamTranslator {
         return false;
     }
 
-    // 2. Stemming Ringan Inggris (Optimasi RAM & Huruf Kecil)
+    // 2. Stemming Ringan Inggris
     bersihkanKataInggris(kata) {
         if (!kata) return "";
         let k = kata.toLowerCase();
@@ -69,7 +69,6 @@ class AntiMainstreamTranslator {
         const srcLang = bahasaAsalLengkap ? bahasaAsalLengkap.split('-')[0].toLowerCase() : 'en';
         const tgtLang = kodeBahasaTujuan ? kodeBahasaTujuan.split('-')[0].toLowerCase() : 'id';
 
-        // Amankan tanda baca & ekspresi
         let teksSiap = kalimatFull
             .replace(/([.?!,])/g, " $1 ")
             .replace(/\s+/g, " ")
@@ -79,7 +78,6 @@ class AntiMainstreamTranslator {
         let hasilArray = [];
         let i = 0;
 
-        // Pemrosesan per kata & frasa
         while (i < kataArray.length) {
             let kataSekarang = kataArray[i];
 
@@ -159,7 +157,6 @@ function translateText(text, srcLang, tgtLang) {
         window.translatorMesin = new AntiMainstreamTranslator();
     }
     
-    // Pastikan kamus dimuat jika sebelumnya sempat tertunda
     if (!window.translatorMesin.isLoaded) {
         window.translatorMesin.inisialisasiKamus();
     }
